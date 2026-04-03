@@ -14,6 +14,7 @@ Key limitations:
 import subprocess
 import json
 import logging
+import urllib.parse
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
@@ -428,3 +429,34 @@ class AppleMusicController:
         self._library_cache = None
         self._library_cache_timestamp = None
         logger.debug("Library cache cleared")
+    
+    def get_apple_music_search_url(self, song_name: str, artist: Optional[str] = None) -> str:
+        """
+        Generate an Apple Music search URL for a song.
+        
+        This creates a clickable link that opens Apple Music to search for the song.
+        User can then stream, add to library, or view more info about the track.
+        
+        Args:
+            song_name (str): Name of the song to search for.
+            artist (str, optional): Artist name to include in search for better results.
+        
+        Returns:
+            str: Apple Music search URL (https://music.apple.com/search?term=...)
+        
+        Example:
+            >>> controller = AppleMusicController()
+            >>> url = controller.get_apple_music_search_url("River", "Leon Bridges")
+            >>> print(url)
+            https://music.apple.com/search?term=River+Leon+Bridges
+        """
+        # Build search query
+        search_query = song_name
+        if artist:
+            search_query = f"{song_name} {artist}"
+        
+        # URL encode the search query
+        encoded_query = urllib.parse.quote(search_query)
+        
+        # Return Apple Music search URL
+        return f"https://music.apple.com/search?term={encoded_query}"

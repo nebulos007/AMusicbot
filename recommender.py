@@ -564,8 +564,13 @@ Please suggest {count} NEW artists they should discover. For each artist, provid
 2. Why they'd like them (connection to their taste)
 3. 2-3 song recommendations to start with
 
-Format each recommendation as:
-Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
+IMPORTANT: Use this EXACT format (with pipe separators):
+Artist Name | Why they'd like them | Suggested songs: Song1, Song2, Song3
+
+Example:
+Leon Bridges | Soulful R&B with retro vibes, similar to Aloe Blacc | Suggested songs: River, Bad Bad News, Smooth Sailin'
+Portugal. The Man | Indie rock with funk energy for upbeat moods | Suggested songs: Feel It Still, Evil Friends
+"""
         
         try:
             # Call GPT with listening context
@@ -613,7 +618,8 @@ Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
         """
         Parse GPT's discovery recommendation response.
         
-        Converts GPT's text response into structured recommendation objects.
+        Converts GPT's text response into structured recommendation objects
+        with Apple Music search URLs for easy discovery.
         
         Expected format:
             Artist Name | Reason | Suggested songs: Song1, Song2, Song3
@@ -622,8 +628,15 @@ Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
             response (str): Raw GPT response text.
         
         Returns:
-            list of dicts with 'artist', 'reason', 'songs', 'raw_response' keys.
+            list of dicts with 'artist', 'reason', 'songs', 'apple_music_url', 'raw_response' keys.
         """
+        # Late import to avoid circular dependency
+        try:
+            from apple_music import AppleMusicController
+            controller = AppleMusicController()
+        except Exception:
+            controller = None
+        
         recommendations = []
         
         # Split response into individual recommendations (separated by newlines)
@@ -631,7 +644,7 @@ Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
         
         for line in lines:
             line = line.strip()
-            if not line or line.startswith('-'):
+            if not line or line.startswith('-') or line.startswith('#'):
                 continue
             
             # Try to parse pipe-separated format
@@ -641,31 +654,55 @@ Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
                     artist = parts[0].strip()
                     reason = parts[1].strip()
                     
+                    # Clean up markdown, numbering, and headers from GPT response
+                    # Remove patterns like "1. **Artist Name**", "### 1. Artist", etc.
+                    artist = artist.lstrip('0123456789.# ')  # Remove leading numbers, bullets, headers
+                    artist = artist.replace('**', '').replace('*', '').replace('###', '').replace('##', '').replace('#', '')
+                    artist = artist.strip()
+                    
+                    # Skip if artist is empty after cleaning
+                    if not artist:
+                        continue
+                    
                     songs = []
                     if len(parts) >= 3:
                         # Extract songs from "Suggested songs: Song1, Song2, ..."
                         songs_part = parts[2].strip()
                         if ":" in songs_part:
                             songs_part = songs_part.split(":", 1)[1].strip()
-                        songs = [s.strip() for s in songs_part.split(",")]
+                        # Clean up markdown from song names too
+                        songs = [s.strip().replace('**', '').replace('*', '').replace('- ', '') for s in songs_part.split(",")]
+                    
+                    # Generate Apple Music search URL
+                    apple_music_url = ""
+                    if controller and songs:
+                        # Use first suggested song for the URL (cleaned)
+                        apple_music_url = controller.get_apple_music_search_url(songs[0], artist)
+                    elif controller:
+                        # No specific song, just search for artist
+                        apple_music_url = controller.get_apple_music_search_url(artist)
                     
                     recommendations.append({
                         "artist": artist,
                         "reason": reason,
                         "songs": songs,
+                        "apple_music_url": apple_music_url,
                         "raw_response": line
                     })
             except Exception as e:
                 logger.debug(f"Could not parse GPT recommendation line '{line}': {e}")
                 continue
         
-        # If parsing failed, return the raw response as a single recommendation
+        # If no recommendations parsed, return raw response wrapped
         if not recommendations:
+            logger.warning(f"No structured recommendations. Response:\n{response[:200]}")
             return [{
                 "artist": "Discovery Recommendations",
                 "reason": response,
                 "songs": [],
+                "apple_music_url": "",
                 "raw_response": response
             }]
         
+        logger.info(f"Parsed {len(recommendations)} recommendations")
         return recommendations

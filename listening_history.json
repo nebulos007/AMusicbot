@@ -31,8 +31,24 @@
       "album": "The Great Milenko",
       "duration": 0,
       "timestamp": "2026-04-02T21:11:30.208671"
+    },
+    {
+      "type": "play",
+      "track": "That Song",
+      "artist": "The Bouncing Souls",
+      "album": "How I Spent My Summer Vacation",
+      "duration": 0,
+      "timestamp": "2026-04-02T21:31:13.221532"
+    },
+    {
+      "type": "play",
+      "track": "That Song",
+      "artist": "The Bouncing Souls",
+      "album": "How I Spent My Summer Vacation",
+      "duration": 0,
+      "timestamp": "2026-04-02T21:31:13.221806"
     }
   ],
-  "last_updated": "2026-04-02T21:16:07.084140",
-  "total_plays": 4
+  "last_updated": "2026-04-02T21:46:31.814300",
+  "total_plays": 6
 }

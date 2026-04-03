@@ -189,24 +189,58 @@ class AppleMusicCLI:
             print(f"{Colors.RED}Error: {e}{Colors.END}")
     
     def get_recommendations(self, mood: Optional[str] = None):
-        """Display recommendations."""
+        """Display recommendations with Apple Music song-specific links."""
         try:
             if mood:
                 recommendations = self.recommender.recommend_by_mood(mood, count=5)
-                print(f"\n{Colors.BOLD}Recommendations for {Colors.YELLOW}{mood}{Colors.END}:")
+                print(f"\n{Colors.BOLD}Recommendations for {Colors.YELLOW}{mood}{Colors.END}:\n")
             else:
                 context = self.chat_session.context.copy()
                 context.update(self.recommender.get_preference_summary())
                 recommendations = self.recommender.get_recommendations(context, count=5)
-                print(f"\n{Colors.BOLD}Personalized Recommendations:{Colors.END}")
+                print(f"\n{Colors.BOLD}✨ NEW ARTISTS TO DISCOVER:{Colors.END}\n")
+            
+            if not recommendations:
+                print(f"{Colors.YELLOW}No recommendations available. Try /recommend again.{Colors.END}\n")
+                return
             
             for i, rec in enumerate(recommendations, 1):
-                reason = rec.get("gpt_reason", rec.get("reason", ""))
-                print(f"\n  {i}. {Colors.BOLD}{rec['track']}{Colors.END} by {rec['artist']}")
-                print(f"     Album:  {rec.get('album', 'Unknown')}")
-                print(f"     Why:    {reason}")
+                # Handle GPT-based discovery recommendations
+                if 'artist' in rec and 'reason' in rec:
+                    artist = rec.get('artist', 'Unknown').strip()
+                    reason = rec.get('reason', '').strip()
+                    songs = rec.get('songs', [])
+                    
+                    print(f"  {Colors.BOLD}{Colors.YELLOW}{i}. {artist}{Colors.END}")
+                    print(f"     {reason}\n")
+                    
+                    # Show song-specific links
+                    if songs:
+                        print(f"     🎵 Suggested songs:")
+                        for song in songs[:3]:
+                            if song and song.strip():
+                                song_url = self.apple_music.get_apple_music_search_url(song, artist)
+                                print(f"        • {song}")
+                                print(f"          {Colors.BLUE}{song_url}{Colors.END}")
+                        print()
+                
+                # Handle content-based recommendations (songs from library)
+                else:
+                    track = rec.get('track', 'Unknown')
+                    artist = rec.get('artist', 'Unknown')
+                    album = rec.get('album', 'Unknown')
+                    reason = rec.get('reason', '')
+                    
+                    print(f"  {Colors.BOLD}{i}. {track}{Colors.END} by {artist}")
+                    if album != 'Unknown':
+                        print(f"     Album: {album}")
+                    if reason:
+                        print(f"     {reason}")
+                    print()
+            
             print()
         except Exception as e:
+            logger.error(f"Error displaying recommendations: {e}")
             print(f"{Colors.RED}Error: {e}{Colors.END}")
     
     def handle_command(self, user_input: str):
