@@ -17,6 +17,7 @@ from apple_music import AppleMusicController, AppleScriptError
 from chat_manager import MusicChatSession, UserIntent
 from recommender import MusicRecommender
 from listening_history import ListeningHistory
+from library_cache import LibraryCache
 from utils.gpt_integration import GPTMusicAssistant
 
 # Configure logging
@@ -58,6 +59,8 @@ class AppleMusicCLI:
         "/current": "Show currently playing track",
         "/recommend": "Get personalized recommendations",
         "/mood": "Get recommendations for a specific mood",
+        "/rebuild_library": "Rebuild library cache (takes 2-3 min, only needed if you added songs)",
+        "/cache_info": "Show library cache information",
         "/history": "Show listening history",
         "/status": "Show session status",
         "/help": "Show this help message",
@@ -71,6 +74,7 @@ class AppleMusicCLI:
         
         # Initialize components
         self.listening_history = ListeningHistory("listening_history.json")
+        self.library_cache = LibraryCache("library_cache.json")
         self.apple_music = AppleMusicController(listening_history=self.listening_history)
         self.chat_session = MusicChatSession("cli_user")
         self.recommender = MusicRecommender()
@@ -97,13 +101,24 @@ class AppleMusicCLI:
         except AppleScriptError as e:
             print(f"{Colors.YELLOW}⚠️  Could not connect to Apple Music: {e}{Colors.END}")
         
-        # Load library
-        try:
-            library = self.apple_music.get_all_songs()
+        # Try to load library from cache first
+        library = []
+        if self.library_cache.load_from_cache():
+            library = self.library_cache.get_library()
             self.recommender.load_library(library)
-            print(f"{Colors.GREEN}✅ Loaded {len(library)} songs{Colors.END}")
-        except AppleScriptError as e:
-            print(f"{Colors.YELLOW}⚠️  Could not load library: {e}{Colors.END}")
+        else:
+            # No cache - load from Apple Music (may be slow for large libraries)
+            print(f"{Colors.CYAN}⏳ First run: Building library cache...{Colors.END}")
+            print(f"{Colors.YELLOW}⚠️  This may take 2-3 minutes for large libraries. Please wait...{Colors.END}")
+            try:
+                library = self.apple_music.get_all_songs()
+                self.library_cache.save_to_cache(library)
+                self.recommender.load_library(library)
+                print(f"{Colors.GREEN}✅ Loaded and cached {len(library)} songs{Colors.END}")
+            except AppleScriptError as e:
+                print(f"{Colors.RED}❌ Library load failed: {e}{Colors.END}")
+                print(f"{Colors.CYAN}💡 The chatbot will work with other features (playback, history).{Colors.END}")
+                print(f"{Colors.CYAN}   Try /rebuild_library later when you have more time.{Colors.END}")
         
         # Load listening history
         recent_plays = self.listening_history.get_recent(limit=100)
@@ -238,6 +253,29 @@ class AppleMusicCLI:
                 moods = ["chill", "energetic", "relaxing", "focus", "workout"]
                 print(f"{Colors.CYAN}Available moods: {', '.join(moods)}{Colors.END}")
                 print(f"{Colors.CYAN}Usage: /mood <mood_name>{Colors.END}")
+        
+        elif cmd == "/rebuild_library":
+            print(f"{Colors.CYAN}⏳ Rebuilding library cache...{Colors.END}")
+            print(f"{Colors.YELLOW}⚠️  This will take 2-3 minutes for large libraries. Please wait...{Colors.END}")
+            try:
+                library = self.apple_music.get_all_songs(use_cache=False)
+                self.library_cache.save_to_cache(library)
+                self.recommender.load_library(library)
+                print(f"{Colors.GREEN}✅ Successfully rebuilt cache with {len(library)} songs!{Colors.END}")
+                print(f"{Colors.GREEN}   From now on, startup will be instant.{Colors.END}")
+            except AppleScriptError as e:
+                print(f"{Colors.RED}❌ Library rebuild failed: {e}{Colors.END}")
+                print(f"{Colors.CYAN}   💡 Your library might be extremely large. Try again later with more time.{Colors.END}")
+        
+        elif cmd == "/cache_info":
+            info = self.library_cache.get_cache_info()
+            print(f"\n{Colors.BOLD}Library Cache Info:{Colors.END}")
+            print(f"  Exists:        {Colors.GREEN if info['exists'] else Colors.YELLOW}{'Yes' if info['exists'] else 'No'}{Colors.END}")
+            print(f"  Path:          {info['path']}")
+            print(f"  Size:          {info['size_bytes']:,} bytes")
+            print(f"  Songs:         {info['song_count']}")
+            print(f"  Last Modified: {info['last_modified'] or 'Never'}")
+            print()
         
         elif cmd == "/history":
             limit = int(args) if args and args.isdigit() else 10

@@ -26,6 +26,7 @@ from apple_music import AppleMusicController, AppleScriptError
 from chat_manager import MusicChatSession, UserIntent
 from recommender import MusicRecommender
 from listening_history import ListeningHistory
+from library_cache import LibraryCache
 from utils.gpt_integration import GPTMusicAssistant
 
 # Configure logging
@@ -46,17 +47,21 @@ apple_music: Optional[AppleMusicController] = None
 chat_session: Optional[MusicChatSession] = None
 recommender: Optional[MusicRecommender] = None
 listening_history: Optional[ListeningHistory] = None
+library_cache: Optional[LibraryCache] = None
 gpt_assistant: Optional[GPTMusicAssistant] = None
 
 
 def initialize_components():
     """Initialize all server components."""
-    global apple_music, chat_session, recommender, listening_history, gpt_assistant
+    global apple_music, chat_session, recommender, listening_history, library_cache, gpt_assistant
     
     logger.info("Initializing Apple Music MCP Server components...")
     
     # Initialize listening history (loads from file if available)
     listening_history = ListeningHistory("listening_history.json")
+    
+    # Initialize library cache
+    library_cache = LibraryCache("library_cache.json")
     
     # Initialize Apple Music controller
     apple_music = AppleMusicController(listening_history=listening_history)
@@ -74,11 +79,21 @@ def initialize_components():
     
     # Initialize recommender with library data
     recommender = MusicRecommender()
-    try:
-        library = apple_music.get_all_songs()
+    
+    # Load library (try cache first, then Apple Music)
+    library = []
+    if library_cache.load_from_cache():
+        library = library_cache.get_library()
         recommender.load_library(library)
-    except AppleScriptError as e:
-        logger.warning(f"Could not load library: {e}")
+    else:
+        logger.info("Building library cache (first run may take a while for large libraries)...")
+        try:
+            library = apple_music.get_all_songs()
+            library_cache.save_to_cache(library)
+            recommender.load_library(library)
+            logger.info(f"Loaded and cached {len(library)} songs")
+        except AppleScriptError as e:
+            logger.warning(f"Could not load library (will use recommendations without library): {e}")
     
     # Load listening history into recommender
     recent_plays = listening_history.get_recent(limit=100)

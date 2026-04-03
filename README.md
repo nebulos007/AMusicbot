@@ -263,6 +263,51 @@ All plays and skips are recorded to `listening_history.json`:
 
 This data survives across sessions, enabling the recommendation engine to learn your preferences over time.
 
+### Smart Library Caching
+
+For users with large music libraries (2000+ songs), the AppleScript library query can be slow. The bot implements intelligent disk-based caching:
+
+**First Run (Cold Start):**
+```
+Loading music library... ⏳
+(This may take 2-3 minutes for very large libraries like yours - 4800+ songs)
+⏳ First run: Building library cache...
+⚠️  This may take 2-3 minutes for large libraries. Please wait...
+✅ Loaded and cached 4,804 songs
+```
+
+The library is loaded from Apple Music and saved to `library_cache.json` (~10-20 MB for large libraries).
+
+**Subsequent Runs (Warm Start):**
+```
+✅ Loaded 4,804 songs from cache (instant)
+```
+
+The cache file loads in under 1 second, making the bot responsive even with massive libraries.
+
+**Cache Management:**
+```bash
+# View cache status and metadata
+/cache_info
+
+# Force rebuild cache from Apple Music (if library changed)
+/rebuild_library
+```
+
+**Under the Hood:**
+- Cache stored in `library_cache.json` (JSON format, human-readable)
+- Automatically created after first library load (takes time but only happens once!)
+- Survives across sessions and CLI restarts
+- Use `/rebuild_library` if you've added many songs to Apple Music
+- The cached library is used for search, recommendations, and suggestion generation
+
+**Why Does First Load Take So Long?**
+- AppleScript library queries are synchronous and single-threaded
+- No access to Apple Music's internal indexed database
+- Large libraries require querying every song individually (~4,800 property accesses)
+- This is an inherent Music app limitation on macOS (not specific to this bot)
+- **Solution: Cache the result so first load is the only slow load. Future loads are instant!**
+
 ## 📈 Scoring Against Rubric
 
 ### 1. Data Source Integration (25 points)
@@ -363,6 +408,7 @@ Apple music capstone/
 ├── chat_manager.py              # Conversation management (MusicChatSession)
 ├── recommender.py               # Recommendation engine (MusicRecommender)
 ├── listening_history.py         # History persistence (ListeningHistory)
+├── library_cache.py             # Library caching (LibraryCache)
 ├── mcp_server.py                # MCP server with tools & resources
 ├── cli.py                       # Interactive CLI interface
 │
@@ -374,9 +420,11 @@ Apple music capstone/
 │   ├── test_recommender.py
 │   ├── test_apple_music.py
 │   ├── test_chat_manager.py
-│   └── test_listening_history.py
+│   ├── test_listening_history.py
+│   └── test_library_cache.py
 │
-└── listening_history.json       # Persistent play history (auto-created)
+├── listening_history.json       # Persistent play history (auto-created)
+└── library_cache.json           # Cached music library (auto-created)
 ```
 
 ## 🔮 Future Improvements

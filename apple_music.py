@@ -42,17 +42,19 @@ class AppleMusicController:
             listening_history: Optional ListeningHistory instance for auto-logging plays.
         """
         self.timeout = timeout
+        self.library_timeout = 180  # Separate, longer timeout for library operations (3 min for large libraries)
         self.listening_history = listening_history
         self._library_cache = None
         self._library_cache_timestamp = None
         self._cache_ttl = 300  # 5 minutes
     
-    def run_applescript(self, script: str) -> str:
+    def run_applescript(self, script: str, timeout: Optional[int] = None) -> str:
         """
         Execute AppleScript safely with error handling and timeout.
         
         Args:
             script (str): AppleScript code to execute.
+            timeout (int, optional): Override default timeout in seconds.
         
         Returns:
             str: stdout from AppleScript execution (trimmed).
@@ -60,12 +62,14 @@ class AppleMusicController:
         Raises:
             AppleScriptError: If execution fails or times out.
         """
+        _timeout = timeout if timeout is not None else self.timeout
+        
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=_timeout,
                 check=False  # Don't raise on non-zero exit
             )
             
@@ -77,7 +81,7 @@ class AppleMusicController:
         
         except subprocess.TimeoutExpired:
             raise AppleScriptError(
-                f"AppleScript execution timed out after {self.timeout} seconds"
+                f"AppleScript execution timed out after {_timeout} seconds"
             )
         except FileNotFoundError:
             raise AppleScriptError(
@@ -318,19 +322,21 @@ class AppleMusicController:
                 set track_name to name of aTrack
                 set artist_name to artist of aTrack
                 set album_name to album of aTrack
-                set end of result_list to track_name & "||" & artist_name & "||" & album_name
+                set end of result_list to track_name & "||" & artist_name & "||" & album_name & linefeed
             end repeat
             return result_list as text
         end tell
         '''
         
         try:
-            output = self.run_applescript(script)
+            # Use longer timeout for library operations
+            output = self.run_applescript(script, timeout=self.library_timeout)
             
             songs = []
             if output:
                 for line in output.split("\n"):
-                    if line.strip():
+                    line = line.strip()
+                    if line:
                         parts = line.split("||")
                         if len(parts) >= 3:
                             songs.append({

@@ -157,6 +157,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# Project-specific files
+library_cache.json              # User's cached music library
+listening_history.json          # User's listening history and preferences
+
+
 # Spyder project settings
 .spyderproject
 .spyproject
