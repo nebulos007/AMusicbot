@@ -84,12 +84,14 @@ def initialize_components():
     library = []
     if library_cache.load_from_cache():
         library = library_cache.get_library()
+        apple_music.library = library  # Load into AppleMusic controller for play_song_by_name
         recommender.load_library(library)
     else:
         logger.info("Building library cache (first run may take a while for large libraries)...")
         try:
             library = apple_music.get_all_songs()
             library_cache.save_to_cache(library)
+            apple_music.library = library  # Update AppleMusic controller with new library
             recommender.load_library(library)
             logger.info(f"Loaded and cached {len(library)} songs")
         except AppleScriptError as e:

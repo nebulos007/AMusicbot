@@ -1,5 +1,22 @@
 {
-  "plays": [],
-  "last_updated": "2026-04-02T20:32:06.139931",
-  "total_plays": 0
+  "plays": [
+    {
+      "type": "play",
+      "track": "The Man",
+      "artist": "Aloe Blacc",
+      "album": "Lift Your Spirit",
+      "duration": 0,
+      "timestamp": "2026-04-02T20:46:33.876486"
+    },
+    {
+      "type": "play",
+      "track": "The Man",
+      "artist": "Aloe Blacc",
+      "album": "Lift Your Spirit",
+      "duration": 0,
+      "timestamp": "2026-04-02T20:46:33.876728"
+    }
+  ],
+  "last_updated": "2026-04-02T20:47:05.743426",
+  "total_plays": 2
 }

@@ -139,19 +139,31 @@ class MusicRecommender:
         Args:
             artist (str): Artist name.
         """
-        # Very basic genre inference - in production would use metadata API
+        # Simple but expanded genre inference - in production would use metadata API
         artist_lower = artist.lower()
         
-        if any(word in artist_lower for word in ["taylor", "ariana", "billie", "dua"]):
+        # Pop artists
+        if any(word in artist_lower for word in ["taylor", "ariana", "billie", "dua", "the weeknd"]):
             self.genre_preferences["pop"] += 1
-        elif any(word in artist_lower for word in ["drake", "travis", "post", "kendrick"]):
+        # Hip-hop/Rap
+        elif any(word in artist_lower for word in ["drake", "travis", "post", "kendrick", "nas", "eminem", "jay-z"]):
             self.genre_preferences["hip-hop"] += 1
-        elif any(word in artist_lower for word in ["coldplay", "the killers", "radiohead"]):
+        # Rock/Metal (expanded)
+        elif any(word in artist_lower for word in ["coldplay", "the killers", "radiohead", "a.f.i", "afi", "nine inch nails", "nin", "nirvana", "tool", "korn", "deftones", "metallica", "slipknot"]):
             self.genre_preferences["rock"] += 1
-        elif any(word in artist_lower for word in ["mozart", "beethoven", "bach"]):
+            if any(word in artist_lower for word in ["a.f.i", "afi", "nine inch nails", "nin", "metallica", "korn", "slipknot"]):
+                self.genre_preferences["metal"] += 0.5
+        # Electronic/EDM
+        elif any(word in artist_lower for word in ["daft", "deadmau5", "skrillex", "tiësto", "avicii", "zedd"]):
+            self.genre_preferences["electronic"] += 1
+        # Jazz/Soul
+        elif any(word in artist_lower for word in ["miles", "coltrane", "billie", "sinatra", "amy"]):
+            self.genre_preferences["jazz"] += 1
+        # Classical
+        elif any(word in artist_lower for word in ["mozart", "beethoven", "bach", "chopin"]):
             self.genre_preferences["classical"] += 1
         else:
-            # Default to pop for unknown artists
+            # Default to indie for unknown artists
             self.genre_preferences["indie"] += 0.5
     
     def calculate_similarity(
@@ -163,7 +175,7 @@ class MusicRecommender:
         Calculate similarity between two songs (0-1 scale).
         
         Based on shared genre and artist characteristics.
-        - Same artist: +0.4
+        - Same artist: +0.1 (penalized to encourage variety)
         - Related genre: +0.4
         - Artist in same genre: +0.3
         
@@ -176,18 +188,18 @@ class MusicRecommender:
         """
         similarity = 0.0
         
-        # Same artist (strong signal)
+        # Same artist (penalized to encourage diversity)
+        # Only adds small bonus instead of large bonus
         if song1.get("artist") == song2.get("artist"):
-            similarity += 0.4
+            similarity += 0.1  # Reduced from 0.4 to avoid same-artist recommendations
         
-        # Genre similarity (would improve with real genre data)
-        # For now, use artist-based inference
+        # Genre similarity (primary driver)
         artist1 = song1.get("artist", "").lower()
         artist2 = song2.get("artist", "").lower()
         
-        # Simple co-occurrence check (would use genre DB in production)
+        # Check genre relationship
         if self._are_related_artists(artist1, artist2):
-            similarity += 0.3
+            similarity += 0.4
         
         # Penalize if in skip history
         skip_key = f"{song2.get('track')}|{song2.get('artist')}"
@@ -218,17 +230,23 @@ class MusicRecommender:
         return len(common_genres) > 0
     
     def _infer_genres(self, artist: str) -> List[str]:
-        """Infer genres for an artist (simplified)."""
+        """Infer genres for an artist (expanded detection)."""
         genres = []
         
-        if any(word in artist for word in ["taylor", "ariana", "billie", "dua"]):
+        if any(word in artist for word in ["taylor", "ariana", "billie", "dua", "the weeknd"]):
             genres = ["pop"]
-        elif any(word in artist for word in ["drake", "travis", "post", "kendrick"]):
+        elif any(word in artist for word in ["drake", "travis", "post", "kendrick", "nas", "eminem", "jay-z"]):
             genres = ["hip-hop"]
-        elif any(word in artist for word in ["coldplay", "the killers"]):
-            genres = ["rock"]
+        elif any(word in artist for word in ["coldplay", "the killers", "radiohead", "a.f.i", "afi", "nine inch nails", "nin", "nirvana", "tool", "korn"]):
+            genres = ["rock", "alternative"]
+        elif any(word in artist for word in ["metallica", "slipknot", "deftones"]):
+            genres = ["metal", "rock"]
+        elif any(word in artist for word in ["daft", "deadmau5", "skrillex"]):
+            genres = ["electronic"]
+        elif any(word in artist for word in ["mozart", "beethoven", "bach"]):
+            genres = ["classical"]
         else:
-            genres = ["indie", "pop"]
+            genres = ["indie", "alternative"]
         
         return genres
     

@@ -210,7 +210,7 @@ class AppleMusicController:
     
     def play_song_by_name(self, song_name: str, artist: Optional[str] = None) -> Dict[str, str]:
         """
-        Search library for a song and play it.
+        Play a song by searching the library.
         
         Args:
             song_name (str): Name of song to search for.
@@ -220,48 +220,63 @@ class AppleMusicController:
             dict with keys 'track', 'artist', 'album' of played song.
         
         Raises:
-            AppleScriptError: If song not found or AppleScript fails.
+            AppleScriptError: If song not found or playback fails.
+        
+        Note:
+            Due to Music app limitations with its search API (error -1708),
+            we search Python-side using the cached library, then play via name match.
         """
-        # Build search script
-        if artist:
-            script = f'''
-            tell application "Music"
-                search for "{song_name}" only tracks
-                set search_results to search results
-                if (count of search_results) > 0 then
-                    repeat with aTrack in search_results
-                        if artist of aTrack contains "{artist}" then
-                            play aTrack
-                            delay 0.5
-                            return (name of aTrack) & "|" & (artist of aTrack) & "|" & (album of aTrack)
-                        end if
-                    end repeat
-                    -- If artist not found, play first result
-                    play item 1 of search_results
-                    set played_track to item 1 of search_results
-                    return (name of played_track) & "|" & (artist of played_track) & "|" & (album of played_track)
-                else
-                    return "NOT_FOUND"
+        # First, search our Python-side library cache for the song
+        matching_songs = []
+        
+        for song in self.library:
+            if song_name.lower() in song.get("track", "").lower():
+                if artist is None or artist.lower() in song.get("artist", "").lower():
+                    matching_songs.append(song)
+        
+        if not matching_songs:
+            raise AppleScriptError(f"Song '{song_name}' not found in library")
+        
+        # Use the first match
+        target_song = matching_songs[0]
+        
+        # Now play via AppleScript using the track name directly
+        # This avoids the search function's -1708 error
+        play_script = f'''
+        tell application "Music"
+            set library_list to every track of library playlist 1
+            set found to false
+            
+            repeat with aTrack in library_list
+                if name of aTrack = "{target_song['track']}" and artist of aTrack = "{target_song['artist']}" then
+                    play aTrack
+                    set found to true
+                    exit repeat
                 end if
-            end tell
-            '''
-        else:
-            script = f'''
-            tell application "Music"
-                search for "{song_name}" only tracks
-                set search_results to search results
-                if (count of search_results) > 0 then
-                    play item 1 of search_results
-                    set played_track to item 1 of search_results
-                    return (name of played_track) & "|" & (artist of played_track) & "|" & (album of played_track)
-                else
-                    return "NOT_FOUND"
-                end if
-            end tell
-            '''
+            end repeat
+            
+            if found then
+                delay 0.5
+                return (name of current track) & "|" & (artist of current track) & "|" & (album of current track)
+            else
+                return "NOT_FOUND"
+            end if
+        end tell
+        '''
         
         try:
-            output = self.run_applescript(script)
+            # Use extended timeout since we might be iterating through many songs
+            output = self.run_applescript(play_script, timeout=60)
+            
+            if output == "NOT_FOUND":
+                raise AppleScriptError(f"Could not play: Match found in library but not in Music app")
+            
+            parts = output.split("|")
+            result = {
+                "track": parts[0] if len(parts) > 0 else target_song["track"],
+                "artist": parts[1] if len(parts) > 1 else target_song["artist"],
+                "album": parts[2] if len(parts) > 2 else target_song.get("album", "Unknown")
+            }
             
             if output == "NOT_FOUND":
                 raise AppleScriptError(f"Song '{song_name}' not found in library")

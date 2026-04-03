@@ -105,6 +105,7 @@ class AppleMusicCLI:
         library = []
         if self.library_cache.load_from_cache():
             library = self.library_cache.get_library()
+            self.apple_music.library = library  # Load into AppleMusic controller for play_song_by_name
             self.recommender.load_library(library)
         else:
             # No cache - load from Apple Music (may be slow for large libraries)
@@ -113,6 +114,7 @@ class AppleMusicCLI:
             try:
                 library = self.apple_music.get_all_songs()
                 self.library_cache.save_to_cache(library)
+                self.apple_music.library = library  # Update AppleMusic controller with new library
                 self.recommender.load_library(library)
                 print(f"{Colors.GREEN}✅ Loaded and cached {len(library)} songs{Colors.END}")
             except AppleScriptError as e:
@@ -260,6 +262,7 @@ class AppleMusicCLI:
             try:
                 library = self.apple_music.get_all_songs(use_cache=False)
                 self.library_cache.save_to_cache(library)
+                self.apple_music.library = library  # Update AppleMusic controller with new library
                 self.recommender.load_library(library)
                 print(f"{Colors.GREEN}✅ Successfully rebuilt cache with {len(library)} songs!{Colors.END}")
                 print(f"{Colors.GREEN}   From now on, startup will be instant.{Colors.END}")
