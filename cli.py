@@ -77,13 +77,15 @@ class AppleMusicCLI:
         self.library_cache = LibraryCache("library_cache.json")
         self.apple_music = AppleMusicController(listening_history=self.listening_history)
         self.chat_session = MusicChatSession("cli_user")
-        self.recommender = MusicRecommender()
         
-        # Initialize GPT assistant
+        # Initialize GPT assistant first (before recommender)
         github_token = os.getenv("GITHUB_TOKEN")
         if not github_token:
             raise ValueError("GITHUB_TOKEN not found in .env")
         self.gpt_assistant = GPTMusicAssistant(api_key=github_token)
+        
+        # Initialize recommender with GPT assistant for discovery recommendations
+        self.recommender = MusicRecommender(gpt_assistant=self.gpt_assistant)
         
         # Load data
         self._initialize_data()

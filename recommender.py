@@ -1,15 +1,21 @@
 """
-Music recommendation engine using content-based filtering.
+Music recommendation engine using GPT-4o for discovery recommendations.
 
 Analyzes listening history to extract preferences (genres, artists) and
-generates recommendations based on similarity to previously played tracks.
-Uses mood detection and user preferences to rank recommendations.
+uses GPT to generate recommendations for NEW artists/songs the user
+might enjoy based on their taste. Combines content analysis with AI-driven
+discovery to suggest unexplored music.
 """
 
 from typing import List, Dict, Optional, Tuple, Set
 from collections import defaultdict, Counter
 import logging
 import math
+
+# Conditional import for GPTMusicAssistant (to avoid circular imports)
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from utils.gpt_integration import GPTMusicAssistant
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +45,19 @@ class MusicRecommender:
         "romantic": ["soul", "classical", "acoustic", "jazz", "indie"],
     }
     
-    def __init__(self):
-        """Initialize the recommendation engine."""
+    def __init__(self, gpt_assistant: Optional["GPTMusicAssistant"] = None):
+        """
+        Initialize the recommendation engine.
+        
+        Args:
+            gpt_assistant (GPTMusicAssistant, optional): GPT assistant for AI-driven
+                                                         discovery recommendations.
+                                                         If None, falls back to content-based filtering.
+        """
         self.library: List[Dict] = []  # Full song library
         self.listening_history: List[Dict] = []  # User's past plays
         self.skip_history: Set[str] = set()  # Songs user skipped
+        self.gpt_assistant = gpt_assistant  # GPT integration for new discoveries
         
         # Extracted preferences from history
         self.genre_preferences: Counter = Counter()
@@ -363,20 +377,47 @@ class MusicRecommender:
         count: int = 10
     ) -> List[Dict]:
         """
-        Generate personalized recommendations based on user context.
+        Generate personalized recommendations using GPT for discovery.
+        
+        If GPT is available, generates NEW artist recommendations based on
+        the user's library and listening history. Otherwise, falls back to
+        content-based filtering from the library.
+        
+        GPT-based approach (preferred):
+        - Analyzes user's top artists and genres
+        - Suggests NEW artists to explore (not in current library)
+        - Explains connections to user's demonstrated taste
+        - Adapts to user's mood if specified
+        
+        Fallback approach (content-based):
+        - Filters existing library by mood or similarity
+        - Useful for offline operation or when GPT unavailable
         
         Args:
-            context (dict, optional): User context including 'mood', 'listening_history', etc.
-            count (int): Number of recommendations.
+            context (dict, optional): User context including:
+                - 'current_mood': User's mood preference
+                - 'user_message': The user's request (for context)
+                - 'conversation_history': Previous conversation turns
+            count (int): Number of recommendations (default 10).
         
         Returns:
-            list of recommendation dicts with 'track', 'artist', 'reason', 'score' keys.
+            list of recommendation dicts. Format depends on recommender:
+            - GPT-based: {'artist', 'reason', 'songs', 'raw_response'}
+            - Content-based: {'track', 'artist', 'album', 'reason', 'score'}
         """
         if not self.library:
             logger.warning("No library loaded, cannot generate recommendations")
             return []
         
         context = context or {}
+        
+        # Try GPT-based discovery first (if available)
+        if self.gpt_assistant:
+            logger.debug("Using GPT-based discovery recommendations")
+            return self.generate_discovery_recommendations(context, count)
+        
+        # Fallback to content-based filtering
+        logger.debug("GPT not available, falling back to content-based recommendations")
         recommendations = []
         
         # If user specified a mood, use that
@@ -417,3 +458,214 @@ class MusicRecommender:
             "skip_count": len(self.skip_history),
             "unique_artists": len(self.artist_preferences)
         }
+    
+    def get_library_summary(self) -> Dict:
+        """
+        Extract a summary of the user's library for GPT context.
+        
+        This provides GPT with key information about what's in the user's
+        collection, their listening patterns, and preferences. Used to
+        generate NEW artist recommendations that fit their taste.
+        
+        Returns:
+            dict with:
+                - 'top_artists': List of 5 most-played artists
+                - 'top_genres': List of 3 most-preferred genres
+                - 'total_songs': Total songs in library
+                - 'unique_artists': Number of unique artists
+                - 'play_count': Number of tracks played in session
+                - 'library_sample': Dict with artist→album→track structure
+                                   (top 50 artists, 2 albums each)
+        """
+        # Group library by artist for structure
+        library_by_artist = defaultdict(lambda: defaultdict(list))
+        for song in self.library:
+            artist = song.get("artist", "Unknown")
+            album = song.get("album", "Unknown")
+            track = song.get("track", "Unknown")
+            library_by_artist[artist][album].append(track)
+        
+        # Sample: top 50 artists, max 2 albums per artist, max 2 tracks per album
+        library_sample = {}
+        for artist in self.top_artists[:50]:
+            albums_dict = {}
+            for album in list(library_by_artist[artist].keys())[:2]:
+                tracks = library_by_artist[artist][album][:2]
+                albums_dict[album] = tracks
+            if albums_dict:
+                library_sample[artist] = albums_dict
+        
+        return {
+            "top_artists": self.top_artists[:5],
+            "top_genres": self.top_genres[:3],
+            "total_songs": len(self.library),
+            "unique_artists": len(self.artist_preferences),
+            "play_count": len(self.listening_history),
+            "library_sample": library_sample
+        }
+    
+    def generate_discovery_recommendations(
+        self,
+        context: Optional[Dict] = None,
+        count: int = 5
+    ) -> List[Dict]:
+        """
+        Generate discovery recommendations using GPT-4o.
+        
+        Sends the user's library summary and listening context to GPT,
+        which generates NEW artists/songs the user might explore based
+        on their demonstrated taste.
+        
+        This is the core of the new recommendation strategy:
+        - Input: What user already owns + listening patterns
+        - Output: NEW artists to discover (not in current library)
+        
+        Args:
+            context (dict, optional): User context including 'current_mood', 'chat_history', etc.
+            count (int): Number of artist recommendations to request.
+        
+        Returns:
+            list of recommendation dicts with 'artist', 'reason', 'songs' keys.
+            If GPT unavailable, falls back to empty list.
+        """
+        if not self.gpt_assistant:
+            logger.warning("GPT assistant not available, cannot generate discovery recommendations")
+            return []
+        
+        if not self.library:
+            logger.warning("No library loaded, cannot generate recommendations")
+            return []
+        
+        context = context or {}
+        
+        # Build context for GPT
+        library_summary = self.get_library_summary()
+        mood = context.get("current_mood", "no specific mood")
+        user_message = context.get("user_message", "")
+        
+        # Build the discovery prompt
+        discovery_prompt = f"""Based on the following user's music library and listening history, 
+suggest {count} NEW artists they should explore. These should be artists NOT already in their collection,
+but similar to or complementary with their taste.
+
+User's Current Taste:
+- Favorite artists: {', '.join(library_summary['top_artists'])}
+- Favorite genres: {', '.join(library_summary['top_genres'])}
+- Total songs in library: {library_summary['total_songs']} across {library_summary['unique_artists']} artists
+- Current mood: {mood}
+
+Library Sample (what they own):
+{self._format_library_sample_for_llm(library_summary['library_sample'])}
+
+User request context: {user_message if user_message else "General recommendation"}
+
+Please suggest {count} NEW artists they should discover. For each artist, provide:
+1. Artist name
+2. Why they'd like them (connection to their taste)
+3. 2-3 song recommendations to start with
+
+Format each recommendation as:
+Artist Name | Reason | Suggested songs: Song1, Song2, Song3"""
+        
+        try:
+            # Call GPT with listening context
+            listening_context = {
+                "current_mood": mood,
+                "top_genres": library_summary["top_genres"],
+                "top_artists": library_summary["top_artists"],
+                "play_count": library_summary["play_count"]
+            }
+            
+            gpt_response = self.gpt_assistant.chat(
+                user_message=discovery_prompt,
+                listening_context=listening_context,
+                conversation_history=context.get("conversation_history")
+            )
+            
+            # Parse GPT response into recommendations
+            recommendations = self._parse_gpt_discovery_response(gpt_response)
+            
+            logger.info(f"Generated {len(recommendations)} discovery recommendations via GPT")
+            return recommendations
+        
+        except Exception as e:
+            logger.error(f"Failed to generate discovery recommendations: {e}")
+            return []
+    
+    def _format_library_sample_for_llm(self, library_sample: Dict) -> str:
+        """
+        Format library sample as readable text for GPT input.
+        
+        Args:
+            library_sample (dict): Library sample from get_library_summary()
+        
+        Returns:
+            str: Formatted text representation.
+        """
+        lines = []
+        for artist, albums in library_sample.items():
+            for album, tracks in albums.items():
+                track_list = ", ".join(tracks)
+                lines.append(f"  - {artist}: {album} ({track_list})")
+        return "\n".join(lines) if lines else "  (Library sample unavailable)"
+    
+    def _parse_gpt_discovery_response(self, response: str) -> List[Dict]:
+        """
+        Parse GPT's discovery recommendation response.
+        
+        Converts GPT's text response into structured recommendation objects.
+        
+        Expected format:
+            Artist Name | Reason | Suggested songs: Song1, Song2, Song3
+        
+        Args:
+            response (str): Raw GPT response text.
+        
+        Returns:
+            list of dicts with 'artist', 'reason', 'songs', 'raw_response' keys.
+        """
+        recommendations = []
+        
+        # Split response into individual recommendations (separated by newlines)
+        lines = response.strip().split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('-'):
+                continue
+            
+            # Try to parse pipe-separated format
+            try:
+                parts = line.split('|')
+                if len(parts) >= 2:
+                    artist = parts[0].strip()
+                    reason = parts[1].strip()
+                    
+                    songs = []
+                    if len(parts) >= 3:
+                        # Extract songs from "Suggested songs: Song1, Song2, ..."
+                        songs_part = parts[2].strip()
+                        if ":" in songs_part:
+                            songs_part = songs_part.split(":", 1)[1].strip()
+                        songs = [s.strip() for s in songs_part.split(",")]
+                    
+                    recommendations.append({
+                        "artist": artist,
+                        "reason": reason,
+                        "songs": songs,
+                        "raw_response": line
+                    })
+            except Exception as e:
+                logger.debug(f"Could not parse GPT recommendation line '{line}': {e}")
+                continue
+        
+        # If parsing failed, return the raw response as a single recommendation
+        if not recommendations:
+            return [{
+                "artist": "Discovery Recommendations",
+                "reason": response,
+                "songs": [],
+                "raw_response": response
+            }]
+        
+        return recommendations

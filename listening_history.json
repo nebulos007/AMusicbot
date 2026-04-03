@@ -15,8 +15,24 @@
       "album": "Lift Your Spirit",
       "duration": 0,
       "timestamp": "2026-04-02T20:46:33.876728"
+    },
+    {
+      "type": "play",
+      "track": "Great Milenko",
+      "artist": "Insane Clown Posse",
+      "album": "The Great Milenko",
+      "duration": 0,
+      "timestamp": "2026-04-02T21:11:30.208440"
+    },
+    {
+      "type": "play",
+      "track": "Great Milenko",
+      "artist": "Insane Clown Posse",
+      "album": "The Great Milenko",
+      "duration": 0,
+      "timestamp": "2026-04-02T21:11:30.208671"
     }
   ],
-  "last_updated": "2026-04-02T20:47:05.743426",
-  "total_plays": 2
+  "last_updated": "2026-04-02T21:16:07.084140",
+  "total_plays": 4
 }

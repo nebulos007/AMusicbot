@@ -77,8 +77,15 @@ def initialize_components():
     # Initialize chat session
     chat_session = MusicChatSession("default")
     
-    # Initialize recommender with library data
-    recommender = MusicRecommender()
+    # Initialize GPT assistant first (before recommender)
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        raise ValueError("GITHUB_TOKEN not found in environment. Please set it in .env file.")
+    
+    gpt_assistant = GPTMusicAssistant(api_key=github_token)
+    
+    # Initialize recommender with GPT assistant for discovery recommendations
+    recommender = MusicRecommender(gpt_assistant=gpt_assistant)
     
     # Load library (try cache first, then Apple Music)
     library = []
@@ -100,13 +107,6 @@ def initialize_components():
     # Load listening history into recommender
     recent_plays = listening_history.get_recent(limit=100)
     recommender.load_listening_history(recent_plays)
-    
-    # Initialize GPT assistant
-    github_token = os.getenv("GITHUB_TOKEN")
-    if not github_token:
-        raise ValueError("GITHUB_TOKEN not found in environment. Please set it in .env file.")
-    
-    gpt_assistant = GPTMusicAssistant(api_key=github_token)
     
     logger.info("✅ All components initialized successfully")
 
