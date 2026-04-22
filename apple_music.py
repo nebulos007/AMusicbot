@@ -15,6 +15,8 @@ import subprocess
 import json
 import logging
 import urllib.parse
+import threading
+import time
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
@@ -34,13 +36,14 @@ class AppleMusicController:
     library information (current track, all songs, playlists).
     """
     
-    def __init__(self, timeout: int = 10, listening_history=None):
+    def __init__(self, timeout: int = 10, listening_history=None, enable_polling: bool = True):
         """
         Initialize Apple Music controller.
         
         Args:
             timeout (int): Maximum seconds for AppleScript execution. Default 10s.
             listening_history: Optional ListeningHistory instance for auto-logging plays.
+            enable_polling (bool): Whether to start background track polling thread. Default True.
         """
         self.timeout = timeout
         self.library_timeout = 180  # Separate, longer timeout for library operations (3 min for large libraries)
@@ -48,6 +51,12 @@ class AppleMusicController:
         self._library_cache = None
         self._library_cache_timestamp = None
         self._cache_ttl = 300  # 5 minutes
+        
+        # Initialize polling thread if enabled
+        self.poller = None
+        if enable_polling and listening_history:
+            self.poller = TrackPoller(self, listening_history)
+            self.poller.start()
     
     def run_applescript(self, script: str, timeout: Optional[int] = None) -> str:
         """
@@ -166,20 +175,28 @@ class AppleMusicController:
         """
         Skip to next track.
         
+        Automatically logs the current track as a skip with timing information
+        (if polling thread is enabled).
+        
         Returns:
             dict with keys 'track', 'artist', 'album' of new track.
         
         Raises:
             AppleScriptError: If AppleScript execution fails.
         """
-        # Log the current track as skipped before moving to next
+        # Log the current track as skipped with detailed timing info
         current = self.get_current_track()
-        if current and self.listening_history:
-            self.listening_history.add_skip(
-                current["track"],
-                current["artist"],
-                datetime.now()
-            )
+        if current:
+            if self.poller:
+                # Use poller to log with elapsed time calculation
+                self.poller.log_skip(current)
+            elif self.listening_history:
+                # Fallback: simple skip logging if polling disabled
+                self.listening_history.add_skip(
+                    current["track"],
+                    current["artist"],
+                    datetime.now()
+                )
         
         script = '''
         tell application "Music"
@@ -460,3 +477,189 @@ class AppleMusicController:
         
         # Return Apple Music search URL
         return f"https://music.apple.com/search?term={encoded_query}"
+    
+    def shutdown(self):
+        """Gracefully shutdown controller and cleanup resources."""
+        if hasattr(self, 'poller') and self.poller:
+            self.poller.stop()
+            logger.debug("Stopped track polling thread")
+
+
+class TrackPoller:
+    """
+    Background daemon thread that polls current track every N seconds
+    and automatically logs complete song listens and skip events.
+    
+    Tracks elapsed time when songs are skipped to categorize skip intent:
+    - immediate_skip (< 20%): User didn't like the song
+    - partial_skip (20-80%): Song was okay but user wanted change  
+    - late_skip (> 80%): User enjoyed it but wanted variety
+    - complete_listen (100%): Track ended naturally (strong positive)
+    """
+    
+    def __init__(
+        self,
+        apple_music_controller: AppleMusicController,
+        listening_history,
+        poll_interval: int = 5,
+        skip_threshold_immediate: float = 0.20,
+        skip_threshold_late: float = 0.80
+    ):
+        """
+        Initialize background track poller.
+        
+        Args:
+            apple_music_controller: AppleMusicController instance for getting current track
+            listening_history: ListeningHistory instance for logging events
+            poll_interval (int): Polling interval in seconds (default 5s)
+            skip_threshold_immediate (float): Percentage (0-1) below which skip is "immediate"
+            skip_threshold_late (float): Percentage (0-1) above which skip is "late"
+        """
+        self.controller = apple_music_controller
+        self.history = listening_history
+        self.poll_interval = poll_interval
+        self.skip_threshold_immediate = skip_threshold_immediate
+        self.skip_threshold_late = skip_threshold_late
+        
+        # Track state
+        self.current_track = None
+        self.track_started_at = None
+        self.running = False
+        self.thread = None
+        
+        logger.debug(f"TrackPoller initialized (interval={poll_interval}s)")
+    
+    def start(self):
+        """Start background polling thread (daemon mode)."""
+        if self.running:
+            logger.warning("TrackPoller is already running")
+            return
+        
+        self.running = True
+        self.thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self.thread.start()
+        logger.info("TrackPoller started")
+    
+    def stop(self):
+        """Stop polling thread gracefully."""
+        if not self.running:
+            return
+        
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=2)
+        logger.info("TrackPoller stopped")
+    
+    def _poll_loop(self):
+        """Main polling loop (runs in background)."""
+        while self.running:
+            try:
+                current = self.controller.get_current_track()
+                
+                # Track changed
+                if current != self.current_track:
+                    # Log previous track if it ended naturally
+                    if self.current_track is not None:
+                        self._log_complete_listen(
+                            self.current_track,
+                            self.track_started_at,
+                            datetime.now()
+                        )
+                    
+                    # Update to new track
+                    self.current_track = current
+                    self.track_started_at = datetime.now()
+                    
+                    if current:
+                        logger.debug(f"Now polling: {current['track']} by {current['artist']}")
+                
+                time.sleep(self.poll_interval)
+            
+            except Exception as e:
+                logger.error(f"Error in track polling loop: {e}")
+                time.sleep(self.poll_interval)
+    
+    def log_skip(self, skipped_track: Dict) -> Dict:
+        """
+        Log a track skip with timing information.
+        
+        Called when user skips via CLI. Calculates elapsed time and categorizes
+        skip intent (immediate/partial/late).
+        
+        Args:
+            skipped_track (dict): Track info dict with 'track', 'artist', 'album', 'duration'
+        
+        Returns:
+            dict: The skip event that was logged
+        """
+        if not self.track_started_at:
+            logger.warning("No track start time - skipping logging")
+            return {}
+        
+        # Calculate elapsed time and percentage
+        elapsed = (datetime.now() - self.track_started_at).total_seconds()
+        duration = float(skipped_track.get('duration', 0))
+        
+        if duration <= 0:
+            percentage = 50  # Fallback if no duration available
+        else:
+            percentage = min(100, (elapsed / duration) * 100)
+        
+        # Categorize skip based on percentage
+        if percentage < self.skip_threshold_immediate * 100:
+            skip_type = "immediate_skip"
+        elif percentage > self.skip_threshold_late * 100:
+            skip_type = "late_skip"
+        else:
+            skip_type = "partial_skip"
+        
+        # Log with detailed timing info
+        event = self.history.add_track(
+            track=skipped_track['track'],
+            artist=skipped_track['artist'],
+            album=skipped_track.get('album', 'Unknown'),
+            duration=duration,
+            skip_type=skip_type,
+            percentage_played=percentage,
+            started_at=self.track_started_at,
+            ended_at=datetime.now()
+        )
+        
+        logger.debug(f"Logged skip: {skip_type} ({percentage:.1f}%) - {skipped_track['track']}")
+        
+        # Reset for next track
+        self.current_track = None
+        self.track_started_at = None
+        
+        return event
+    
+    def _log_complete_listen(
+        self,
+        track: Dict,
+        started: datetime,
+        ended: datetime
+    ) -> Dict:
+        """
+        Log a track that was listened to completely (natural transition).
+        
+        Called automatically when track changes without user skipping.
+        
+        Args:
+            track (dict): Track info dict
+            started (datetime): When track started
+            ended (datetime): When track ended
+        
+        Returns:
+            dict: The complete_listen event that was logged
+        """
+        event = self.history.add_complete_listen(
+            track=track['track'],
+            artist=track['artist'],
+            album=track.get('album', 'Unknown'),
+            duration=float(track.get('duration', 0)),
+            started_at=started,
+            ended_at=ended
+        )
+        
+        logger.debug(f"Logged complete listen: {track['track']} by {track['artist']}")
+        return event

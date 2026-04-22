@@ -45,7 +45,7 @@ class MusicRecommender:
         "romantic": ["soul", "classical", "acoustic", "jazz", "indie"],
     }
     
-    def __init__(self, gpt_assistant: Optional["GPTMusicAssistant"] = None):
+    def __init__(self, gpt_assistant: Optional["GPTMusicAssistant"] = None, listening_history_manager=None):
         """
         Initialize the recommendation engine.
         
@@ -53,11 +53,14 @@ class MusicRecommender:
             gpt_assistant (GPTMusicAssistant, optional): GPT assistant for AI-driven
                                                          discovery recommendations.
                                                          If None, falls back to content-based filtering.
+            listening_history_manager (ListeningHistory, optional): Manager for listening history
+                                                                    with skip signal analysis.
         """
         self.library: List[Dict] = []  # Full song library
         self.listening_history: List[Dict] = []  # User's past plays
         self.skip_history: Set[str] = set()  # Songs user skipped
         self.gpt_assistant = gpt_assistant  # GPT integration for new discoveries
+        self.listening_history_manager = listening_history_manager  # For skip signal analysis
         
         # Extracted preferences from history
         self.genre_preferences: Counter = Counter()
@@ -446,18 +449,39 @@ class MusicRecommender:
     
     def get_preference_summary(self) -> Dict:
         """
-        Get summary of user's music preferences.
+        Get summary of user's music preferences including skip signals.
+        
+        Analyzes listening history to extract preference signals from:
+        - Complete listens (strong positive)
+        - Late skips (positive, user enjoyed but wanted variety)
+        - Partial skips (neutral)
+        - Immediate skips (strong negative)
         
         Returns:
-            dict with 'top_genres', 'top_artists', 'play_count' keys.
+            dict with 'top_genres', 'top_artists', 'play_count', 'skip_signals' keys.
         """
-        return {
+        preference_summary = {
             "top_genres": self.top_genres,
             "top_artists": self.top_artists,
             "play_count": len(self.listening_history),
             "skip_count": len(self.skip_history),
             "unique_artists": len(self.artist_preferences)
         }
+        
+        # Add skip signal analysis if listening_history has it
+        if hasattr(self, 'listening_history_manager') and self.listening_history_manager:
+            try:
+                skip_signals = self.listening_history_manager.get_skip_signals()
+                preference_summary["skip_signals"] = {
+                    "positive": len(skip_signals['positive']),
+                    "neutral": len(skip_signals['neutral']),
+                    "negative": len(skip_signals['negative'])
+                }
+            except (AttributeError, Exception):
+                # Gracefully handle if skip signals not available
+                pass
+        
+        return preference_summary
     
     def get_library_summary(self) -> Dict:
         """

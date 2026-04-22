@@ -75,7 +75,10 @@ class AppleMusicCLI:
         # Initialize components
         self.listening_history = ListeningHistory("listening_history.json")
         self.library_cache = LibraryCache("library_cache.json")
-        self.apple_music = AppleMusicController(listening_history=self.listening_history)
+        self.apple_music = AppleMusicController(
+            listening_history=self.listening_history,
+            enable_polling=True  # Enable background track polling
+        )
         self.chat_session = MusicChatSession("cli_user")
         
         # Initialize GPT assistant first (before recommender)
@@ -84,8 +87,11 @@ class AppleMusicCLI:
             raise ValueError("GITHUB_TOKEN not found in .env")
         self.gpt_assistant = GPTMusicAssistant(api_key=github_token)
         
-        # Initialize recommender with GPT assistant for discovery recommendations
-        self.recommender = MusicRecommender(gpt_assistant=self.gpt_assistant)
+        # Initialize recommender with GPT assistant and listening history manager
+        self.recommender = MusicRecommender(
+            gpt_assistant=self.gpt_assistant,
+            listening_history_manager=self.listening_history
+        )
         
         # Load data
         self._initialize_data()
@@ -183,7 +189,19 @@ class AppleMusicCLI:
             
             print(f"\n{Colors.BOLD}Recent Plays (last {limit}):{Colors.END}")
             for i, event in enumerate(recent, 1):
-                print(f"  {i}. {event['track']} - {event['artist']}")
+                track = event['track']
+                artist = event['artist']
+                
+                # Show skip categorization if available
+                skip_type = event.get('skip_type')
+                if skip_type and skip_type != "complete_listen":
+                    percentage = event.get('percentage_played', 0)
+                    print(f"  {i}. {track} - {artist} ({skip_type} - {percentage:.1f}% played)")
+                elif skip_type == "complete_listen":
+                    percentage = event.get('percentage_played', 100)
+                    print(f"  {i}. {track} - {artist} (played {percentage:.1f}%)")
+                else:
+                    print(f"  {i}. {track} - {artist}")
             print()
         except Exception as e:
             print(f"{Colors.RED}Error: {e}{Colors.END}")
@@ -396,27 +414,44 @@ class AppleMusicCLI:
     
     def run(self):
         """Start the interactive CLI."""
-        self.print_header()
-        
-        while self.running:
-            try:
-                user_input = input(f"{Colors.CYAN}You: {Colors.END}").strip()
-                
-                if not user_input:
-                    continue
-                
-                if user_input.startswith("/"):
-                    self.handle_command(user_input)
-                else:
-                    self.handle_chat(user_input)
+        try:
+            self.print_header()
             
-            except KeyboardInterrupt:
-                print(f"\n{Colors.CYAN}Goodbye! 👋{Colors.END}")
-                self.listening_history.save_to_file()
-                break
-            except Exception as e:
-                logger.error(f"Error: {e}")
-                print(f"{Colors.RED}❌ Error: {e}{Colors.END}")
+            while self.running:
+                try:
+                    user_input = input(f"{Colors.CYAN}You: {Colors.END}").strip()
+                    
+                    if not user_input:
+                        continue
+                    
+                    if user_input.startswith("/"):
+                        self.handle_command(user_input)
+                    else:
+                        self.handle_chat(user_input)
+                
+                except KeyboardInterrupt:
+                    print(f"\n{Colors.CYAN}Goodbye! 👋{Colors.END}")
+                    self.running = False
+                except Exception as e:
+                    logger.error(f"Error: {e}")
+                    print(f"{Colors.RED}❌ Error: {e}{Colors.END}")
+        
+        finally:
+            self.shutdown()
+    
+    def shutdown(self):
+        """Gracefully shutdown CLI and cleanup resources."""
+        logger.debug("Shutting down CLI...")
+        
+        # Save listening history
+        if self.listening_history:
+            self.listening_history.save_to_file()
+        
+        # Stop polling thread
+        if self.apple_music:
+            self.apple_music.shutdown()
+        
+        logger.debug("CLI shutdown complete")
 
 
 def main():

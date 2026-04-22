@@ -88,27 +88,39 @@ class ListeningHistory:
         artist: str,
         album: str,
         duration: int = 0,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        skip_type: Optional[str] = None,
+        percentage_played: Optional[float] = None,
+        started_at: Optional[datetime] = None,
+        ended_at: Optional[datetime] = None
     ) -> Dict:
         """
-        Log a track play event.
+        Log a track event (play or skip with timing info).
         
         Args:
             track (str): Track name.
             artist (str): Artist name.
             album (str): Album name.
             duration (int): Duration in seconds (optional).
-            timestamp (datetime, optional): When the track was played.
-                                          Defaults to now.
+            timestamp (datetime, optional): When the event occurred. Defaults to now.
+            skip_type (str, optional): Type of skip: 'immediate_skip', 'partial_skip', 
+                                      'late_skip', or 'complete_listen'. If provided,
+                                      event type becomes 'skip'.
+            percentage_played (float, optional): Percentage of track played (0-100).
+            started_at (datetime, optional): When the track started playing.
+            ended_at (datetime, optional): When the skip/end occurred.
         
         Returns:
-            dict: The play event that was added.
+            dict: The event that was added.
         """
         if timestamp is None:
             timestamp = datetime.now()
         
+        # Determine event type based on skip_type
+        event_type = "skip" if skip_type else "play"
+        
         event = {
-            "type": "play",
+            "type": event_type,
             "track": track,
             "artist": artist,
             "album": album,
@@ -116,8 +128,21 @@ class ListeningHistory:
             "timestamp": timestamp.isoformat()
         }
         
+        # Add skip-specific fields if provided
+        if skip_type:
+            event["skip_type"] = skip_type
+            if percentage_played is not None:
+                event["percentage_played"] = round(percentage_played, 1)
+            if started_at:
+                event["started_at"] = started_at.isoformat()
+            if ended_at:
+                event["ended_at"] = ended_at.isoformat()
+        
         self.history.append(event)
-        logger.debug(f"Added play event: {track} by {artist}")
+        log_msg = f"Added {event_type} event: {track} by {artist}"
+        if skip_type:
+            log_msg += f" ({skip_type}: {percentage_played:.1f}%)"
+        logger.debug(log_msg)
         
         # Auto-save periodically
         if len(self.history) % 10 == 0:
@@ -132,7 +157,10 @@ class ListeningHistory:
         timestamp: Optional[datetime] = None
     ) -> Dict:
         """
-        Log a track skip event.
+        Log a track skip event (deprecated - use add_track() with skip_type instead).
+        
+        This method is kept for backward compatibility. Use add_track() with
+        skip_type parameter for better tracking of skip timing.
         
         Args:
             track (str): Track name that was skipped.
@@ -158,18 +186,59 @@ class ListeningHistory:
         
         return event
     
+    def add_complete_listen(
+        self,
+        track: str,
+        artist: str,
+        album: str,
+        duration: int = 0,
+        started_at: Optional[datetime] = None,
+        ended_at: Optional[datetime] = None
+    ) -> Dict:
+        """
+        Log a track that was listened to completely (natural transition).
+        
+        Called by background polling thread when a track ends naturally
+        (user didn't skip it, song just finished).
+        
+        Args:
+            track (str): Track name.
+            artist (str): Artist name.
+            album (str): Album name.
+            duration (int): Duration in seconds.
+            started_at (datetime, optional): When the track started playing.
+            ended_at (datetime, optional): When the track ended.
+        
+        Returns:
+            dict: The complete_listen event that was added.
+        """
+        return self.add_track(
+            track=track,
+            artist=artist,
+            album=album,
+            duration=duration,
+            skip_type="complete_listen",
+            percentage_played=100.0,
+            started_at=started_at,
+            ended_at=ended_at
+        )
+    
     def get_recent(self, limit: int = 50) -> List[Dict]:
         """
-        Get most recent play events (excluding skips).
+        Get most recent play events (including complete listens from polling).
         
         Args:
             limit (int): Maximum number of events to return.
         
         Returns:
-            list of play event dicts, most recent first.
+            list of play/complete_listen event dicts, most recent first.
         """
-        plays = [e for e in self.history if e.get("type") == "play"]
-        return plays[-limit:][::-1]  # Most recent first
+        # Include both explicit plays and complete listens (natural track transitions)
+        relevant = [
+            e for e in self.history 
+            if e.get("type") == "play" or e.get("skip_type") == "complete_listen"
+        ]
+        return relevant[-limit:][::-1]  # Most recent first
     
     def get_recent_skips(self, limit: int = 20) -> List[Dict]:
         """
@@ -259,6 +328,34 @@ class ListeningHistory:
         except Exception as e:
             logger.warning(f"Failed to load initial history from Apple Music: {e}")
             return False
+    
+    def get_skip_signals(self) -> Dict[str, List[Dict]]:
+        """
+        Categorize skip events into preference signals.
+        
+        Returns:
+            dict with keys:
+                'positive': complete_listen + late_skip events (user enjoyed it)
+                'neutral': partial_skip events (user was okay with it)
+                'negative': immediate_skip events (user didn't like it)
+        """
+        signals = {
+            'positive': [],
+            'neutral': [],
+            'negative': []
+        }
+        
+        for event in self.history:
+            skip_type = event.get("skip_type")
+            
+            if skip_type == "complete_listen" or skip_type == "late_skip":
+                signals['positive'].append(event)
+            elif skip_type == "partial_skip":
+                signals['neutral'].append(event)
+            elif skip_type == "immediate_skip":
+                signals['negative'].append(event)
+        
+        return signals
     
     def get_summary(self) -> Dict:
         """

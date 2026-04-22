@@ -47,8 +47,78 @@
       "album": "How I Spent My Summer Vacation",
       "duration": 0,
       "timestamp": "2026-04-02T21:31:13.221806"
+    },
+    {
+      "type": "play",
+      "track": "Should've Been a Cowboy",
+      "artist": "Toby Keith",
+      "album": "Should've Been a Cowboy (25th Anniversary Edition)",
+      "duration": 0,
+      "timestamp": "2026-04-03T09:01:54.234170"
+    },
+    {
+      "type": "play",
+      "track": "Should've Been a Cowboy",
+      "artist": "Toby Keith",
+      "album": "Should've Been a Cowboy (25th Anniversary Edition)",
+      "duration": 0,
+      "timestamp": "2026-04-03T09:01:54.234304"
+    },
+    {
+      "type": "skip",
+      "track": "Hope Is a Dangerous Little Thing",
+      "artist": "The Menzingers",
+      "timestamp": "2026-04-22T11:21:58.061946"
+    },
+    {
+      "type": "skip",
+      "track": "Routine Pain",
+      "artist": "Spanish Love Songs",
+      "album": "Brave Faces Everyone",
+      "duration": 263.122985839844,
+      "timestamp": "2026-04-22T11:49:26.286318",
+      "skip_type": "complete_listen",
+      "percentage_played": 100.0,
+      "started_at": "2026-04-22T11:48:55.295030",
+      "ended_at": "2026-04-22T11:49:26.286296"
+    },
+    {
+      "type": "skip",
+      "track": "Private Eye",
+      "artist": "Alkaline Trio",
+      "album": "From Here to Infirmary",
+      "duration": 210.220993041992,
+      "timestamp": "2026-04-22T11:50:28.325045",
+      "skip_type": "complete_listen",
+      "percentage_played": 100.0,
+      "started_at": "2026-04-22T11:49:26.286833",
+      "ended_at": "2026-04-22T11:50:28.325014"
+    },
+    {
+      "type": "skip",
+      "track": "Private Eye",
+      "artist": "Alkaline Trio",
+      "album": "From Here to Infirmary",
+      "duration": 210.220993041992,
+      "timestamp": "2026-04-22T12:03:05.318457",
+      "skip_type": "complete_listen",
+      "percentage_played": 100.0,
+      "started_at": "2026-04-22T12:02:23.973083",
+      "ended_at": "2026-04-22T12:03:05.318423"
+    },
+    {
+      "type": "skip",
+      "track": "Jack of All Trades (2018 Remaster)",
+      "artist": "Hot Water Music",
+      "album": "A Flight and a Crash (2018 Remaster)",
+      "duration": 163.746994018555,
+      "timestamp": "2026-04-22T12:03:31.207975",
+      "skip_type": "complete_listen",
+      "percentage_played": 100.0,
+      "started_at": "2026-04-22T12:03:05.318490",
+      "ended_at": "2026-04-22T12:03:31.207934"
     }
   ],
-  "last_updated": "2026-04-02T21:46:31.814300",
-  "total_plays": 6
+  "last_updated": "2026-04-22T12:03:32.086164",
+  "total_plays": 13
 }

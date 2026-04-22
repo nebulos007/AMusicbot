@@ -546,9 +546,19 @@
       "album": "Andiamo"
     },
     {
+      "track": "Bat Country",
+      "artist": "Avenged Sevenfold",
+      "album": "City of Evil"
+    },
+    {
       "track": "Hail to the King",
       "artist": "Avenged Sevenfold",
       "album": "Hail to the King (Deluxe Edition)"
+    },
+    {
+      "track": "Bat Country (Live)",
+      "artist": "Avenged Sevenfold",
+      "album": "Live In the LBC"
     },
     {
       "track": "Welcome to the Family",
@@ -22056,6 +22066,11 @@
       "album": "Rubberneck"
     },
     {
+      "track": "Should've Been a Cowboy",
+      "artist": "Toby Keith",
+      "album": "Should've Been a Cowboy (25th Anniversary Edition)"
+    },
+    {
       "track": "Bad News",
       "artist": "Tom MacDonald, Madchild & Nova Rockafeller",
       "album": "Bad News - Single"
@@ -24021,6 +24036,6 @@
       "album": "Jerry EP"
     }
   ],
-  "cached_at": "2026-04-02T20:28:25.207257",
-  "song_count": 4804
+  "cached_at": "2026-04-22T11:53:50.081731",
+  "song_count": 4807
 }
